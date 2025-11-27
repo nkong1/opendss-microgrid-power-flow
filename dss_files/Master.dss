@@ -1,0 +1,13 @@
+Clear
+
+New Circuit.vsource_24ab4116-d257-41b1-960b-481ced9684f1 Bus1=24ab4116-d257-41b1-960b-481ced9684f1.3.1.2 BasekV=12.47 pu=1.0 Angle=0.0 Phases=3 Z1=[0.001, 0.001] Z0=[0.001, 0.001]
+redirect LineCodes.dss
+redirect Transformers.dss
+redirect Lines.dss
+redirect Loads.dss
+Set Voltagebases=[0.48, 12.47]
+new energymeter.meter Line.da10c1d6-6a6f-49d0-9c76-2e47cadb21b1
+new energymeter.meter1 Line.01151c85-b3c9-4bd4-bb37-8c683c6984da
+calcv
+Solve
+redirect BusCoords.dss
