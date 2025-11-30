@@ -6,7 +6,7 @@ Runs OpenDSS time-series simulation with PV data and custom load profiles.
 Separate plotting can be done with plot_results.py
 
 Usage:
-    python run_power_flow.py --master dss_files\Master.dss --pv_file pv_data.xlsx --load_file dss_files\load_timeseries_data.csv --results results --start_hour 1 --end_hour 2
+    python run_power_flow.py --master raw_data\Master.dss --pv_file raw_data/pv_data.xlsx --load_file raw_data\load_timeseries_data.csv --results results --start_hour 1837 --end_hour 1837
 """
 
 import argparse
@@ -237,6 +237,68 @@ def get_all_bus_data():
     
     return pd.DataFrame(bus_data)
 
+def get_line_loading():
+    """
+    Returns a DataFrame with line loading info:
+    - line name
+    - from bus, to bus
+    - active/reactive power (kW, kVar)
+    - per-phase current (A)
+    - per-phase percent loading
+    - max percent loading among phases
+    """
+    lines_data = []
+    all_lines = dss.Lines.AllNames()
+
+    for line in all_lines:
+        dss.Lines.Name(line)
+        try:
+            from_bus, to_bus = dss.Lines.Bus1(), dss.Lines.Bus2()
+
+            # Three-phase power at sending end
+            kw = dss.CktElement.Powers()[0] / 1000
+            kvar = dss.CktElement.Powers()[1] / 1000
+
+            # Per-phase current magnitudes
+            curr_mag = dss.CktElement.CurrentsMagAng()[0::2]  # mag only, per conductor
+
+            # Normalize length to 3 (pad with nan for missing phases)
+            I_ph = curr_mag[:3] + [np.nan]*(3-len(curr_mag))
+            I1, I2, I3 = I_ph
+
+            # Line ampacity
+            amp_rating = dss.Lines.NormAmps()
+
+            # Per-phase % loading
+            pct1 = 100*I1/amp_rating if I1 is not None and amp_rating else np.nan
+            pct2 = 100*I2/amp_rating if I2 is not None and amp_rating else np.nan
+            pct3 = 100*I3/amp_rating if I3 is not None and amp_rating else np.nan
+
+            # Max loading among phases
+            max_pct = np.nanmax([pct1, pct2, pct3])
+
+            lines_data.append({
+                'line': line,
+                'from_bus': from_bus,
+                'to_bus': to_bus,
+                'kw': kw,
+                'kvar': kvar,
+                'Iph1_A': I1,
+                'Iph2_A': I2,
+                'Iph3_A': I3,
+                'amp_rating': amp_rating,
+                'pct_ph1': pct1,
+                'pct_ph2': pct2,
+                'pct_ph3': pct3,
+                'max_pct_loading': max_pct
+            })
+
+        except Exception as e:
+            print(f"Warning: failed to get loading for line {line}: {e}")
+
+    return pd.DataFrame(lines_data)
+
+
 
 def run_timeseries(master_dss, pv_df, load_df, results_dir, start_hour=1, end_hour=8760, verbose=False):
     """Run complete time-series simulation"""
@@ -329,6 +391,8 @@ def run_timeseries(master_dss, pv_df, load_df, results_dir, start_hour=1, end_ho
     print(f"Running simulation for hours {start_hour} to {end_hour}...")
     
     pv_buses = []
+    all_line_hourly_data = []
+
 
     for hour in tqdm(hours, desc="Solving"):
         
@@ -380,6 +444,12 @@ def run_timeseries(master_dss, pv_df, load_df, results_dir, start_hour=1, end_ho
         
         all_hourly_data.append(bus_results)
 
+        # Extract line loading
+        line_results = get_line_loading()
+        line_results['hour'] = hour
+        all_line_hourly_data.append(line_results)
+
+
     # check_pv_buses(pv_buses) for debugging
 
     # Report convergence issues
@@ -402,7 +472,12 @@ def run_timeseries(master_dss, pv_df, load_df, results_dir, start_hour=1, end_ho
     }).reset_index()
     summary.columns = ['_'.join(col).strip('_') for col in summary.columns.values]
     summary.to_csv(results_dir / "voltage_summary.csv", index=False)
-    
+
+    # Combine all hours of line results
+    if all_line_hourly_data:
+        combined_line_results = pd.concat(all_line_hourly_data, ignore_index=True)
+        combined_line_results.to_csv(results_dir / "line_loading_timeseries.csv", index=False)
+
     # Save metadata
     metadata = {
         'master_dss': str(master_dss),

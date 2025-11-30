@@ -1,7 +1,7 @@
 {
   "master_dss": "dss_files\\Master.dss",
-  "start_hour": 1501,
-  "end_hour": 1501,
+  "start_hour": 1837,
+  "end_hour": 1837,
   "total_buses": 124,
   "pv_buses": 7,
   "load_buses_matched": 42,
